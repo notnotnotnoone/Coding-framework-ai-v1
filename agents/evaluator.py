@@ -2,11 +2,13 @@ import ollama
 import json
 
 def evaluate_task(specification):
+    # We redefine what SIMPLE and COMPLEX mean to the AI
     instructions = (
-        "You are a Task Classifier. Review the technical specification. "
-        "1. Provide a 2-sentence explanation of why the task is simple or complex. "
-        "2. Categorize the task as 'SIMPLE' or 'COMPLEX'. "
-        "You MUST respond in JSON format with two keys: 'reasoning' and 'category'."
+        "You are a Senior Technical Lead. Classify this task strictly based on these rules:\n"
+        "1. SIMPLE: The task can be solved using built-in Python libraries (os, sys, datetime, math) or a single-file UI (tkinter). "
+        "It does not require external API keys, databases, or training machine learning models.\n"
+        "2. COMPLEX: Requires external APIs (OpenWeather, OpenAI), multiple files, database integration, or high-level GUI libraries like PyQt.\n\n"
+        "Respond in JSON format with 'reasoning' (2 sentences) and 'category' ('SIMPLE' or 'COMPLEX')."
     )
     
     response = ollama.generate(
@@ -15,8 +17,8 @@ def evaluate_task(specification):
         prompt=specification,
         format="json", 
         options={
-            "temperature": 0, 
-            "num_predict": 200 # Bumped slightly for safety
+            "temperature": 0.1, # Small bump to prevent 'stuck' logic
+            "num_predict": 250 
         }
     )
     
@@ -24,7 +26,6 @@ def evaluate_task(specification):
 
     try:
         data = json.loads(raw_content)
-        # Success path
         reasoning = data.get("reasoning", "No reasoning provided.")
         category = data.get("category", "COMPLEX").strip().upper()
         
@@ -32,7 +33,5 @@ def evaluate_task(specification):
         return category
 
     except Exception as e:
-        # Error path - This will tell you exactly what went wrong
         print(f"\n[!] JSON Parse Failed: {e}")
-        print(f"[!] Raw output was: {raw_content}")
         return "COMPLEX"
