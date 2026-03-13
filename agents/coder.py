@@ -14,6 +14,7 @@ def run_coder(specification, difficulty):
         "You are a Senior Python Developer. Write a complete, working Python script "
         "based on the technical specification. "
         "RULES: Output ONLY the code. No markdown formatting. No backticks. No explanations."
+        "MANDATORY RULE: The program MUST run entirely in the terminal/console. Do NOT use tkinter, pygame, or any GUI libraries. If a user asks for a visual app (like a clock), design it as a text-based terminal output."
     )
 
     response = ollama.generate(

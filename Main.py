@@ -7,7 +7,7 @@ from agents.prompt_engineer import prompt_engineer
 from agents.evaluator import evaluate_task
 from agents.coder import run_coder
 from agents.executor import run_in_sandbox
-from agents.reviewer import analyze_error
+from agents.reviewer import analyze_error, observe_execution
 
 # --- CYBERPUNK COLOR PALETTE ---
 RESET = "\033[0m"
@@ -18,21 +18,18 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
 BLUE = "\033[94m"
-DARK_GRAY = "\033[90m"
 
 is_thinking = False
 
 def fake_boot_sequence():
     print(f"\n{BLUE}{BOLD}INITIALIZING NEURAL LINK...{RESET}")
-    length = 40
     for i in range(21):
         percent = int((i / 20) * 100)
-        filled = int(length * i // 20)
-        bar = '█' * filled + '░' * (length - filled)
+        bar = '█' * (i * 2) + '░' * (40 - (i * 2))
         sys.stdout.write(f"\r{CYAN}   Booting Subsystems: [{bar}] {percent}%{RESET}")
         sys.stdout.flush()
-        time.sleep(0.05)
-    print(f"\n{GREEN}{BOLD}   [OK] AI SQUAD ONLINE AND STANDING BY.{RESET}\n")
+        time.sleep(0.02)
+    print(f"\n{GREEN}{BOLD}   [OK] AI SQUAD ONLINE.{RESET}\n")
 
 def animated_spinner(task_name, color):
     global is_thinking
@@ -56,69 +53,67 @@ def run_with_spinner(target_func, args, task_name, color):
 
 def main():
     fake_boot_sequence()
-
     print(f"{BLUE}{BOLD}{'='*65}{RESET}")
     user_input = input(f"{YELLOW}{BOLD}   [INPUT REQUIRED] Describe your task > {RESET}")
     print(f"{BLUE}{BOLD}{'='*65}{RESET}\n")
     
     start_time = time.time()
 
-    # --- LAYER 1: ARCHITECT ---
-    print(f"{CYAN}{BOLD}🏗️  LAYER 1: ARCHITECT (Qwen 0.5B){RESET}")
+    print(f"{CYAN}{BOLD}🏗️  LAYER 1: ARCHITECT{RESET}")
     spec = run_with_spinner(prompt_engineer, (user_input,), "Drafting Blueprint", CYAN)
     print(f"{CYAN}   [SUCCESS] Specification locked.{RESET}\n")
 
-    # --- LAYER 2: EVALUATOR ---
-    print(f"{MAGENTA}{BOLD}⚖️  LAYER 2: EVALUATOR (Llama 3B){RESET}")
-    difficulty = run_with_spinner(evaluate_task, (spec,), "Analyzing Logic Complexity", MAGENTA)
+    print(f"{MAGENTA}{BOLD}⚖️  LAYER 2: EVALUATOR{RESET}")
+    difficulty = run_with_spinner(evaluate_task, (spec,), "Analyzing Logic", MAGENTA)
     print(f"{MAGENTA}   [ROUTING] Task classified as: {difficulty}{RESET}\n")
 
-    # --- THE AUTO-FIX LOOP (Layers 3, 4, and 5) ---
     max_retries = 3
     attempt = 1
     code_works = False
-    current_prompt = spec # Starts as just the spec, but gets feedback added if it fails
+    current_prompt = spec
 
     while attempt <= max_retries and not code_works:
         print(f"{GREEN}{BOLD}💻  LAYER 3: CODER (Attempt {attempt}/{max_retries}){RESET}")
         file_saved = run_with_spinner(run_coder, (current_prompt, difficulty), "Compiling Code", GREEN)
         
-        # --- LAYER 4: EXECUTOR (Sandbox) ---
         print(f"{YELLOW}{BOLD}⚙️  LAYER 4: EXECUTOR (Sandbox){RESET}")
-        sandbox_result = run_with_spinner(run_in_sandbox, (file_saved,), "Testing execution", YELLOW)
+        sandbox_result = run_with_spinner(run_in_sandbox, (file_saved,), "Executing", YELLOW)
         
         if sandbox_result['status'] == "SUCCESS":
             print(f"{GREEN}   [SUCCESS] Code ran flawlessly!{RESET}\n")
             code_works = True
-        else:
-            print(f"{RED}   [FAILED] Code crashed: {sandbox_result['status']}{RESET}")
             
+        elif sandbox_result['status'] == "OBSERVE":
+            print(f"{MAGENTA}{BOLD}👁️  LAYER 4.5: OBSERVER{RESET}")
+            obs = run_with_spinner(observe_execution, (spec, sandbox_result['output']), "Reviewing Output", MAGENTA)
+            
+            if obs.get('decision') == "SUCCESS":
+                print(f"{GREEN}   [SUCCESS] {obs.get('notes')}{RESET}\n")
+                code_works = True
+            else:
+                print(f"{RED}   [FAILED] {obs.get('notes')}{RESET}\n")
+                sandbox_result['error'] = f"Observer rejected output: {obs.get('notes')}\nTerminal printed:\n{sandbox_result['output']}"
+                sandbox_result['status'] = "FAILED" # Force it into the Reviewer block below
+
+        if not code_works and sandbox_result['status'] != "OBSERVE":
+            print(f"{RED}   [CRASH] {sandbox_result['error'][:100]}...{RESET}")
             if attempt < max_retries:
-                # --- LAYER 5: REVIEWER ---
-                print(f"{MAGENTA}{BOLD}👁️  LAYER 5: REVIEWER (Llama 3B){RESET}")
+                print(f"{MAGENTA}{BOLD}🔧  LAYER 5: DEBUGGER{RESET}")
                 with open(file_saved, "r") as f:
                     broken_code = f.read()
                 
                 feedback = run_with_spinner(analyze_error, (spec, broken_code, sandbox_result['error']), "Diagnosing Issue", MAGENTA)
                 print(f"{MAGENTA}   [FEEDBACK] {feedback}{RESET}\n")
                 
-                # Update the prompt for the next loop so the Coder knows what to fix
-                current_prompt = (
-                    f"{spec}\n\n"
-                    f"--- CRITICAL FIX REQUIRED ---\n"
-                    f"Your previous code failed with this error:\n{sandbox_result['error']}\n\n"
-                    f"Senior Developer Instructions:\n{feedback}\n\n"
-                    f"Please rewrite the code to fix this issue."
-                )
+                current_prompt = f"{spec}\n\n--- CRITICAL FIX REQUIRED ---\nError:\n{sandbox_result['error']}\n\nDebugger Instructions:\n{feedback}\nRewrite code to fix this."
             attempt += 1
 
-    # --- COMPLETION ---
     elapsed = round(time.time() - start_time, 2)
     print(f"{BLUE}{BOLD}{'='*65}{RESET}")
     if code_works:
         print(f"{GREEN}{BOLD}   MISSION ACCOMPLISHED IN {elapsed} SECONDS{RESET}")
     else:
-        print(f"{RED}{BOLD}   MISSION FAILED: Max retries reached after {elapsed} seconds.{RESET}")
+        print(f"{RED}{BOLD}   MISSION FAILED AFTER {elapsed} SECONDS{RESET}")
     print(f"{YELLOW}{BOLD}   TARGET SAVED TO: {file_saved}{RESET}")
     print(f"{BLUE}{BOLD}{'='*65}{RESET}\n")
 
@@ -127,4 +122,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         is_thinking = False
-        print(f"\n\n{RED}{BOLD}[!] MANUAL OVERRIDE TRIGGERED. SYSTEM SHUTDOWN.{RESET}")
+        print(f"\n\n{RED}{BOLD}[!] SYSTEM SHUTDOWN.{RESET}")
